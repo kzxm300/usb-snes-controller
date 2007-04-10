@@ -152,18 +152,19 @@ static const unsigned char cfg_desc[] =
   DESC_INTERFACE,     /* bDescriptorType */
   0,                  /* bInterfaceNumber: identifier for this interface */
   0,                  /* bAlternateSetting: disting. mutually exclusive IFs */
-  0,                  /* bNumEndpoints: endpoints in addition to EP0 */
-  0,                  /* bInterfaceClass */
+  1,                  /* bNumEndpoints: endpoints in addition to EP0 */
+  0x03,               /* bInterfaceClass */
   0,                  /* bInterfaceSubclass */
   0,                  /* bInterfaceProtocol */
   0,                  /* iInterface: index of string descriptor */
+  /* TODO: HID descriptor */
   /* endpoint descriptor */
-  /* bLength: descriptor size in bytes */
-  /* bDescriptorType */
-  /* bEndpointAddress: endpoint number and direction */
-  /* bmAttributes: type of supported transfer */
-  /* wMaxPacketSize: max. packet size supported */
-  /* bInterval: maximum latency for polling */  
+  7,                  /* bLength: descriptor size in bytes */
+  DESC_ENDPOINT,      /* bDescriptorType */
+  0x81,               /* bEndpointAddress: endpoint number and direction */
+  0x03,               /* bmAttributes: type of supported transfer */
+  0x08,               /* wMaxPacketSize: max. packet size supported */
+  0x01                /* bInterval: maximum latency for polling */  
 };
 
 /* USB Memory */
@@ -276,9 +277,6 @@ void process_ep0( void )
       switch ( req )
       {
         case REQ_GET_DESCRIPTOR:
-//      g_test++;
-//      if ( g_test == 2U )
-//      LATA = 0;
           desc = ((struct ctrltrf_setup *)EP0RXBUF)->wValue >> 8;
           switch ( desc )
           {
@@ -305,6 +303,7 @@ void process_ep0( void )
                 g_curtrf_left = requested;
               }
               /* endpoint for IN transaction will be prepared below */
+              break;
             default:
               /* unsupported descriptor -> send STALL */
               /* (will be cleared with next SETUP transaction) */
@@ -338,6 +337,7 @@ void process_ep0( void )
         default:
           /* unsupported request -> send STALL */
           /* (will be cleared with next SETUP transaction) */
+          DEBUG_OUT( 'U' );
           BD0OUT.BDSTAT = _UOWN | _BSTALL;
           BD0IN.BDSTAT = _UOWN | _BSTALL;
       }
@@ -355,6 +355,7 @@ void process_ep0( void )
       {
         /* OUT transaction from host means Status stage */
         /* -> transfer is complete */
+        g_curtrf = TRF_NONE;
       }
       else if ( g_curtrf == TRF_OUT )
       {
@@ -386,12 +387,14 @@ void process_ep0( void )
       /* IN transaction from host means Status stage */
       /* host sent acknowledge -> transfer complete */
       g_curtrf = TRF_NONE;
-      g_curtrf = TRF_NONE;
       if ( g_addr != 0U )
       {
         /* we received our new address in this transaction! */
+        DEBUG_OUT( '0' + ( g_addr >> 4 ) );
+        DEBUG_OUT( '0' + ( g_addr & 0x0F ) );
         UADDR = g_addr;
         g_addr = 0;
+        LATA = 0;
       }
     }
   } /* if ( ( USTAT & _DIR ) != 0 ) */
