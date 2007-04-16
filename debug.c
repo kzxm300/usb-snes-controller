@@ -3,7 +3,7 @@
 #include <p18cxxx.h>
 #include "debug.h"
 
-#define BUFFER_SIZE 16
+#define BUFFER_SIZE 32
 
 static unsigned char g_buffer[ BUFFER_SIZE ];
 static unsigned char g_index_in;     /* points to next free location */
