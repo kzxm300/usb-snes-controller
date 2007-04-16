@@ -69,7 +69,14 @@ enum req_num
   REQ_SET_CONFIGURATION = 0x09,
   REQ_GET_INTERFACE     = 0x0A,
   REQ_SET_INTERFACE     = 0x0B,
-  REQ_SYNC_FRAME        = 0x0C
+  REQ_SYNC_FRAME        = 0x0C,
+  /* HID specific (see explanation below) */
+  REQ_GET_REPORT        = 0x81,
+  REQ_GET_IDLE          = 0x82,
+  REQ_GET_PROTOCOL      = 0x83,
+  REQ_SET_REPORT        = 0x89,
+  REQ_SET_IDLE          = 0x8A,
+  REQ_SET_PROTOCOL      = 0x8B
 };
 
 /* USB descriptor values */
@@ -117,6 +124,8 @@ struct bd_entry
   unsigned short BDADR;   /* BD Address register */
 };
 
+static const unsigned char report_desc[];  /* forward declaration */
+
  
 static const unsigned char dev_desc[] =
 {
@@ -127,11 +136,11 @@ static const unsigned char dev_desc[] =
   0x00,         /* bDeviceSubclass: subclass code */
   0x00,         /* bDeviceProtocol: protocol code */
   0x08,         /* bMaxPacketSize: max packet size for EP0 */
-  0x34, 0x12,   /* idVendor: vendor ID */
+  0xD8, 0x04,   /* idVendor: vendor ID (0x04D8=Microchip) */
   0x01, 0x00,   /* idProduct: product ID */
   0x01, 0x00,   /* bcdDevice: device release number */
-  0x00,         /* iManufacturer: index of string desc. */
-  0x00,         /* iProduct: index of string desc. */
+  0x01,         /* iManufacturer: index of string desc. */
+  0x02,         /* iProduct: index of string desc. */
   0x00,         /* iSerialNumber: index of string desc. */
   0x01          /* bNumConfiguration: number of possible configs */
 };
@@ -141,7 +150,8 @@ static const unsigned char cfg_desc[] =
   /* configuration descriptor */
   9,                  /* bLength: descriptor size in bytes */
   DESC_CONFIGURATION, /* bDescriptorType */
-  sizeof( cfg_desc ), 0, /* wTotalLength: size of all data for this config */
+//  sizeof( cfg_desc ), 0, /* wTotalLength: size of all data for this config */
+  34, 0,
   1,                  /* bNumInterfaces: number of interfaces of config */
   1,                  /* bConfigurationValue: identifier for this config */
   0,                  /* iConfiguration: index of string descriptor */
@@ -157,16 +167,53 @@ static const unsigned char cfg_desc[] =
   0,                  /* bInterfaceSubclass */
   0,                  /* bInterfaceProtocol */
   0,                  /* iInterface: index of string descriptor */
-  /* TODO: HID descriptor */
+  /* class descriptor */
+  9,                  /* bLength: descriptor size in bytes */
+  DESC_HID,           /* bDescriptorType */
+  0x10, 0x01,         /* bcdHID: HID spec release number */
+  0,                  /* bCountryCode: indentifies country for localized HW */
+  1,                  /* bNumDescriptors: number of subordinate class desc. */
+  DESC_REPORT,        /* bDescriptorType */
+  12, 0x00, /* wDescriptorLength: length of report desc. */
+//  sizeof( report_desc ), 0x00, /* wDescriptorLength: length of report desc. */
   /* endpoint descriptor */
   7,                  /* bLength: descriptor size in bytes */
   DESC_ENDPOINT,      /* bDescriptorType */
   0x81,               /* bEndpointAddress: endpoint number and direction */
   0x03,               /* bmAttributes: type of supported transfer */
-  0x08,               /* wMaxPacketSize: max. packet size supported */
-  0x01                /* bInterval: maximum latency for polling */  
+  0x08, 0x00,         /* wMaxPacketSize: max. packet size supported */
+//  0x0A                /* bInterval: maximum latency for polling */  
+  sizeof( cfg_desc )
 };
 
+static const unsigned char report_desc[] =
+{
+  0x00
+};
+#if 0
+static const unsigned char string_desc_lang[] =
+{
+  sizeof( string_desc_lang ),  /* bLength */
+  DESC_STRING,                 /* bDescriptorType */
+  0x09, 0x04                   /* wLANGID */
+};
+
+static const unsigned char string_desc_man[] =
+{
+  sizeof( string_desc_man ),
+  DESC_STRING,
+  'C',0,'h',0,'r',0,'i',0,'s',0,'t',0,'i',0,'a',0,'n',0,' ',0,
+  'E',0,'t',0,'t',0,'i',0,'n',0,'g',0,'e',0,'r',0
+};
+
+static const unsigned char string_desc_prod[] =
+{
+  sizeof( string_desc_prod ),
+  DESC_STRING,
+  'S',0,'u',0,'p',0,'e',0,'r',0,' ',0,'N',0,'i',0,'n',0,'t',0,'e',0,'n',0,
+  'd',0,'o',0,' ',0,'C',0,'o',0,'n',0,'t',0,'r',0,'o',0,'l',0,'l',0,'e',0,'r',0
+};
+#endif
 /* USB Memory */
 #pragma udata usb_bdt = 0x400
 static volatile struct bd_entry BD0OUT;  /* buffer descriptor table */
@@ -186,11 +233,13 @@ static unsigned char * g_curtrf_data;  /* data pointer for next transact. */
 static unsigned char   g_curtrf_left;  /* number of bytes still to transf */
 static unsigned char   g_curtrf_dts;   /* DTS value for next transaction */
 static unsigned char   g_addr;  /* TODO: rework */
+static unsigned char   g_config;       /* current configuration */
 static unsigned char   g_test;
 
 /* local prototypes */
 void high_isr( void );
 void process_ep0( void );
+void process_ep1( void );
 
 /* Interrupt Vector */
 #pragma code high_vector = 0x08
@@ -221,6 +270,7 @@ void high_isr( void )
       /* USB reset interrupt */
       /* UADDR has already been set to 0 */
       g_addr = 0;
+      g_config = 0;
       /* TODO: clear USTAT FIFO */
       /* EP0 is ready for SETUP transaction: */
       BD0OUT.BDSTAT = _UOWN;
@@ -237,11 +287,15 @@ void high_isr( void )
     {
       /* USB transaction complete interrupt */
       /* read USTAT register */
-      if ( ( USTAT & 0x78 ) == 0U )
+      switch ( USTAT & 0x78 )
       {
-        process_ep0();  /* process endpoint 0 */
+        case 0x00:
+          process_ep0();  /* process endpoint 0 */
+          break;
+        case 0x08:
+          process_ep1();  /* process endpoint 1 */
+          break;
       }
-          
     }
     UIR = 0x00;  /* clear USB interrupt flags */
   }
@@ -274,10 +328,22 @@ void process_ep0( void )
       g_curtrf_dts = _DTS;   /* next transaction must be DATA1 */
       
       req = ((struct ctrltrf_setup *)EP0RXBUF)->bRequest;
+      if ( ( ((struct ctrltrf_setup *)EP0RXBUF)->bmRequestType & 0x60 ) == 0x20 )
+      {
+        /* Explanation: we "fold" bRequest and bmRequestType together into one
+          value. By that we can use the same code for handling class-specific
+          requests. */
+        req |= 0x80;  /* bit 7 identifies this as class-specific request */
+      }
+      
       switch ( req )
       {
         case REQ_GET_DESCRIPTOR:
+          DEBUG_OUT( 'D' );
           desc = ((struct ctrltrf_setup *)EP0RXBUF)->wValue >> 8;
+          requested = ((struct ctrltrf_setup *)EP0RXBUF)->wLength ;
+          DEBUG_OUT( '0' + ( requested >> 4 ) );
+          DEBUG_OUT( '0' + ( requested & 0x0F ) );
           switch ( desc )
           {
             case DESC_DEVICE:
@@ -285,11 +351,6 @@ void process_ep0( void )
               g_curtrf = TRF_IN;
               g_curtrf_data = (unsigned char*)&dev_desc;
               g_curtrf_left = sizeof( dev_desc );
-              requested = ((struct ctrltrf_setup *)EP0RXBUF)->wLength ;
-              if ( requested < g_curtrf_left )
-              {
-                g_curtrf_left = requested;
-              }
               /* endpoint for IN transaction will be prepared below */
               break;
             case DESC_CONFIGURATION:
@@ -297,19 +358,45 @@ void process_ep0( void )
               g_curtrf = TRF_IN;
               g_curtrf_data = (unsigned char*)&cfg_desc;
               g_curtrf_left = sizeof( cfg_desc );
-              requested = ((struct ctrltrf_setup *)EP0RXBUF)->wLength ;
-              if ( requested < g_curtrf_left )
+              /* endpoint for IN transaction will be prepared below */
+              break;
+#if 0
+            case DESC_STRING:
+              DEBUG_OUT( 's' );
+              g_curtrf = TRF_IN;
+              /* TODO: String index is in lower byte of wValue */
+              switch ( ((struct ctrltrf_setup *)EP0RXBUF)->wIndex )
               {
-                g_curtrf_left = requested;
+                case 0:
+                  g_curtrf_data = (unsigned char *)&string_desc_lang;
+                  g_curtrf_left = sizeof( string_desc_lang );
+                  break;
+                case 1:
+                  g_curtrf_data = (unsigned char *)&string_desc_man;
+                  g_curtrf_left = sizeof( string_desc_man );
+                  break;
+                case 2:
+                  g_curtrf_data = (unsigned char *)&string_desc_prod;
+                  g_curtrf_left = sizeof( string_desc_prod );
+                  break;
+                default:
+                  g_curtrf_left = 0;
               }
               /* endpoint for IN transaction will be prepared below */
               break;
+#endif
             default:
               /* unsupported descriptor -> send STALL */
               /* (will be cleared with next SETUP transaction) */
               DEBUG_OUT( 'u' );
               BD0OUT.BDSTAT = _UOWN | _BSTALL;
               BD0IN.BDSTAT = _UOWN | _BSTALL;
+          }
+
+          /* correct amount of bytes if necessary */
+          if ( requested < g_curtrf_left )
+          {
+            g_curtrf_left = requested;
           }
           break;
         case REQ_SET_DESCRIPTOR:
@@ -323,16 +410,29 @@ void process_ep0( void )
           */
           break;
         case REQ_SET_ADDRESS:
-          DEBUG_OUT( 'a' );
+          DEBUG_OUT( 'A' );
           g_curtrf = TRF_OUT;
           g_curtrf_left = 0;
           g_addr = ((struct ctrltrf_setup *)EP0RXBUF)->wValue & 0x7F;
           break;
         case REQ_SET_CONFIGURATION:
           /* the lower byte of wValue contains configuration number */
+          DEBUG_OUT( 'C' );
           DEBUG_OUT( 's' );
           g_curtrf = TRF_OUT;
           g_curtrf_left = 0;
+          g_config = ((struct ctrltrf_setup *)EP0RXBUF)->wValue & 0xFF;
+          break;
+        case REQ_GET_CONFIGURATION:
+          DEBUG_OUT( 'C' );
+          DEBUG_OUT( 'g' );
+          g_curtrf = TRF_IN;
+          g_curtrf_data = &g_config;
+          g_curtrf_left = 1;
+          break;
+        case REQ_GET_REPORT:
+          /* wValue: high-byte = report type, low-byte = report ID */
+          /* TODO */
           break;
         default:
           /* unsupported request -> send STALL */
@@ -366,6 +466,7 @@ void process_ep0( void )
           g_curtrf_data[ i ] = EP0RXBUF[ i ];
         }
         g_curtrf_data += tocopy;
+        g_curtrf_left -= tocopy;
         g_curtrf_dts ^= _DTS;       /* toggle DTS bit */
       }
     } /* if ( pid != PID_SETUP ) */
@@ -408,6 +509,7 @@ void process_ep0( void )
        remaining or not. When the host requests more data than we have,
        we are required to send a zero-length data packet. */
     tocopy = ( g_curtrf_left <= 8U ) ? g_curtrf_left : 8;
+    DEBUG_OUT( '0' + tocopy );
     for ( i = 0; i < tocopy; ++i )
     {
       EP0TXBUF[ i ] = g_curtrf_data[ i ];
@@ -441,6 +543,12 @@ void process_ep0( void )
 }
 
 
+void process_ep1( void )
+{
+  /* endpoint 1 only supports Interrupt transfers */
+}
+
+
 void main(void)
 {
   g_test = 0;
@@ -466,19 +574,19 @@ void main(void)
   UIE  = 0x7F;  /* enable all USB interrupts */
   /* TODO: only enable implemented interrupts */
   UEP0 = _EPHSHK | _EPOUTEN | _EPINEN;  /* permit control transfers */
-  //UEP1 = 0x1E;  /* endpoint 1: IN+OUT transfers */
+  UEP1 = 0x1A;  /* endpoint 1: only IN transfers */
   BD0OUT.BDSTAT = _UOWN;  /* reset&activate */
   BD0OUT.BDCNT  = 8;     /* 8 Byte size for low-speed */
   BD0OUT.BDADR  = (unsigned short)&EP0RXBUF;
   BD0IN.BDSTAT  = 0x00;  /* reset */
-  BD0IN.BDADR   = (unsigned short)&EP0TXBUF;
   BD0IN.BDCNT   = 0;
+  BD0IN.BDADR   = (unsigned short)&EP0TXBUF;
   BD1OUT.BDSTAT = 0x00;  /* reset */
   BD1OUT.BDCNT  = 8;     /* 8 Byte size for low-speed */
   BD1OUT.BDADR  = (unsigned short)&EP1RXBUF;
   BD1IN.BDSTAT  = 0x00;  /* reset */
-  BD1IN.BDADR   = (unsigned short)&EP1TXBUF;
   BD1IN.BDCNT   = 0;
+  BD1IN.BDADR   = (unsigned short)&EP1TXBUF;
   UCON = _PPBRST | _PKTDIS | _USBEN;  /* enable USB module */
 
   INTCON = 0xC0;  /* global interrupt enable */
