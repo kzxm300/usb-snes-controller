@@ -1,6 +1,7 @@
 /* main.c */
 
 #include <p18cxxx.h>
+#include <string.h>   /* for memcpy() */
 #include "debug.h"
 
 /* Configuration */
@@ -106,6 +107,13 @@ enum trf_type
   TRF_OUT
 };
 
+/* for specifying if a transfer is in/from RAM or ROM */
+enum trf_mem
+{
+  TRF_RAM,
+  TRF_ROM
+};
+
 /* setup stage of a control transfer */
 struct ctrltrf_setup
 {
@@ -124,10 +132,10 @@ struct bd_entry
   unsigned short BDADR;   /* BD Address register */
 };
 
-static const unsigned char report_desc[];  /* forward declaration */
+static const rom unsigned char report_desc[];  /* forward declaration */
 
  
-static const unsigned char dev_desc[] =
+static const rom unsigned char dev_desc[] =
 {
   18,           /* bLength: descriptor size in bytes */
   DESC_DEVICE,  /* bDescriptorType */
@@ -145,7 +153,7 @@ static const unsigned char dev_desc[] =
   0x01          /* bNumConfiguration: number of possible configs */
 };
 
-static const unsigned char cfg_desc[] =
+static const rom unsigned char cfg_desc[] =
 {
   /* configuration descriptor */
   9,                  /* bLength: descriptor size in bytes */
@@ -186,19 +194,43 @@ static const unsigned char cfg_desc[] =
   sizeof( cfg_desc )
 };
 
-static const unsigned char report_desc[] =
+static const rom unsigned char report_desc[] =
 {
-  0x00
+    0x05, 0x01,                    // USAGE_PAGE (Generic Desktop)
+    0x09, 0x05,                    // USAGE (Game Pad)
+    0x15, 0x00,                    // LOGICAL_MINIMUM (0)
+    0x25, 0x01,                    // LOGICAL_MAXIMUM (1)
+    0xa1, 0x00,                    // COLLECTION (Physical)
+    0x09, 0x90,                    //   USAGE (D-pad Up)
+    0x09, 0x91,                    //   USAGE (D-pad Down)
+    0x09, 0x92,                    //   USAGE (D-pad Right)
+    0x09, 0x93,                    //   USAGE (D-pad Left)
+    0x75, 0x01,                    //   REPORT_SIZE (1)
+    0x95, 0x04,                    //   REPORT_COUNT (4)
+    0x81, 0x02,                    //   INPUT (Data,Var,Abs)
+    0x05, 0x09,                    //   USAGE_PAGE (Button)
+    0x19, 0x01,                    //   USAGE_MINIMUM (Button 1)
+    0x29, 0x06,                    //   USAGE_MAXIMUM (Button 6)
+    0x75, 0x01,                    //   REPORT_SIZE (1)
+    0x95, 0x06,                    //   REPORT_COUNT (6)
+    0x81, 0x02,                    //   INPUT (Data,Var,Abs)
+    0x05, 0x01,                    //   USAGE_PAGE (Generic Desktop)
+    0x09, 0x3d,                    //   USAGE (Start)
+    0x09, 0x3e,                    //   USAGE (akeup)
+    0x75, 0x01,                    //   REPORT_SIZE (1)
+    0x95, 0x02,                    //   REPORT_COUNT (2)
+    0x81, 0x02,                    //   INPUT (Data,Var,Abs)
+    0xc0                           // END_COLLECTION
 };
-#if 0
-static const unsigned char string_desc_lang[] =
+
+static const rom unsigned char string_desc_lang[] =
 {
   sizeof( string_desc_lang ),  /* bLength */
   DESC_STRING,                 /* bDescriptorType */
   0x09, 0x04                   /* wLANGID */
 };
 
-static const unsigned char string_desc_man[] =
+static const rom unsigned char string_desc_man[] =
 {
   sizeof( string_desc_man ),
   DESC_STRING,
@@ -206,14 +238,14 @@ static const unsigned char string_desc_man[] =
   'E',0,'t',0,'t',0,'i',0,'n',0,'g',0,'e',0,'r',0
 };
 
-static const unsigned char string_desc_prod[] =
+static const rom unsigned char string_desc_prod[] =
 {
   sizeof( string_desc_prod ),
   DESC_STRING,
   'S',0,'u',0,'p',0,'e',0,'r',0,' ',0,'N',0,'i',0,'n',0,'t',0,'e',0,'n',0,
   'd',0,'o',0,' ',0,'C',0,'o',0,'n',0,'t',0,'r',0,'o',0,'l',0,'l',0,'e',0,'r',0
 };
-#endif
+
 /* USB Memory */
 #pragma udata usb_bdt = 0x400
 static volatile struct bd_entry BD0OUT;  /* buffer descriptor table */
@@ -229,6 +261,7 @@ static volatile unsigned char   EP1TXBUF[ 8 ];  /* 8 byte buffer */
 
 /* static data */
 static enum trf_type   g_curtrf;  /* indicates type of current transfer */
+static enum trf_mem    g_curtrf_mem;   /* whether data is in RAM or ROM */
 static unsigned char * g_curtrf_data;  /* data pointer for next transact. */
 static unsigned char   g_curtrf_left;  /* number of bytes still to transf */
 static unsigned char   g_curtrf_dts;   /* DTS value for next transaction */
@@ -328,7 +361,7 @@ void process_ep0( void )
       g_curtrf_dts = _DTS;   /* next transaction must be DATA1 */
       
       req = ((struct ctrltrf_setup *)EP0RXBUF)->bRequest;
-      if ( ( ((struct ctrltrf_setup *)EP0RXBUF)->bmRequestType & 0x60 ) == 0x20 )
+      if ( ( ((struct ctrltrf_setup *)EP0RXBUF)->bmRequestType & 0x60 ) == 0x20U )
       {
         /* Explanation: we "fold" bRequest and bmRequestType together into one
           value. By that we can use the same code for handling class-specific
@@ -349,34 +382,32 @@ void process_ep0( void )
             case DESC_DEVICE:
               DEBUG_OUT( 'd' );
               g_curtrf = TRF_IN;
-              g_curtrf_data = (unsigned char*)&dev_desc;
+              g_curtrf_data = dev_desc;
               g_curtrf_left = sizeof( dev_desc );
               /* endpoint for IN transaction will be prepared below */
               break;
             case DESC_CONFIGURATION:
               DEBUG_OUT( 'c' );
               g_curtrf = TRF_IN;
-              g_curtrf_data = (unsigned char*)&cfg_desc;
+              g_curtrf_data = cfg_desc;
               g_curtrf_left = sizeof( cfg_desc );
               /* endpoint for IN transaction will be prepared below */
               break;
-#if 0
             case DESC_STRING:
               DEBUG_OUT( 's' );
               g_curtrf = TRF_IN;
-              /* TODO: String index is in lower byte of wValue */
-              switch ( ((struct ctrltrf_setup *)EP0RXBUF)->wIndex )
+              switch ( ((struct ctrltrf_setup *)EP0RXBUF)->wValue & 0xFF )
               {
                 case 0:
-                  g_curtrf_data = (unsigned char *)&string_desc_lang;
+                  g_curtrf_data = string_desc_lang;
                   g_curtrf_left = sizeof( string_desc_lang );
                   break;
                 case 1:
-                  g_curtrf_data = (unsigned char *)&string_desc_man;
+                  g_curtrf_data = string_desc_man;
                   g_curtrf_left = sizeof( string_desc_man );
                   break;
                 case 2:
-                  g_curtrf_data = (unsigned char *)&string_desc_prod;
+                  g_curtrf_data = string_desc_prod;
                   g_curtrf_left = sizeof( string_desc_prod );
                   break;
                 default:
@@ -384,7 +415,6 @@ void process_ep0( void )
               }
               /* endpoint for IN transaction will be prepared below */
               break;
-#endif
             default:
               /* unsupported descriptor -> send STALL */
               /* (will be cleared with next SETUP transaction) */
@@ -398,6 +428,9 @@ void process_ep0( void )
           {
             g_curtrf_left = requested;
           }
+          
+          /* descriptors come from ROM */
+          g_curtrf_mem = TRF_ROM;
           break;
         case REQ_SET_DESCRIPTOR:
           /* TODO: not completely implemented yet */
@@ -405,6 +438,7 @@ void process_ep0( void )
           BD0IN.BDSTAT = _UOWN | _BSTALL;
           /*
           g_curtrf = TRF_OUT;
+          g_curtrf_mem = TRF_RAM;
           g_curtrf_data = &buffermem;
           g_curtrf_left = sizeof( buffermem );
           */
@@ -427,6 +461,7 @@ void process_ep0( void )
           DEBUG_OUT( 'C' );
           DEBUG_OUT( 'g' );
           g_curtrf = TRF_IN;
+          g_curtrf_mem = TRF_RAM;
           g_curtrf_data = &g_config;
           g_curtrf_left = 1;
           break;
@@ -461,10 +496,7 @@ void process_ep0( void )
       {
         /* copy received data to memory */
         tocopy = BD0OUT.BDCNT;
-        for ( i = 0; i < tocopy; ++i )
-        {
-          g_curtrf_data[ i ] = EP0RXBUF[ i ];
-        }
+        memcpy( (void *)g_curtrf_data, (const void *)EP0RXBUF, tocopy );
         g_curtrf_data += tocopy;
         g_curtrf_left -= tocopy;
         g_curtrf_dts ^= _DTS;       /* toggle DTS bit */
@@ -510,9 +542,14 @@ void process_ep0( void )
        we are required to send a zero-length data packet. */
     tocopy = ( g_curtrf_left <= 8U ) ? g_curtrf_left : 8;
     DEBUG_OUT( '0' + tocopy );
-    for ( i = 0; i < tocopy; ++i )
+    if ( g_curtrf_mem == TRF_RAM )
     {
-      EP0TXBUF[ i ] = g_curtrf_data[ i ];
+      memcpy( (void *)EP0TXBUF, (const void *)g_curtrf_data, tocopy );
+    }
+    else
+    {
+      /* copy from ROM */
+      memcpypgm2ram( (void *)EP0TXBUF, (rom void *)g_curtrf_data, tocopy );
     }
     g_curtrf_left -= tocopy;
     g_curtrf_data += tocopy;
