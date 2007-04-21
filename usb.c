@@ -118,7 +118,7 @@ struct bd_entry
   unsigned short BDADR;   /* BD Address register */
 };
 
-static const rom unsigned char report_desc[49];  /* forward declaration */
+static const rom unsigned char report_desc[60];  /* forward declaration */
 
  
 static const rom unsigned char dev_desc[18] =
@@ -177,23 +177,29 @@ static const rom unsigned char cfg_desc[34] =
   0x0A                /* bInterval: maximum latency for polling */  
 };
 
-static const rom unsigned char report_desc[49] =
+static const rom unsigned char report_desc[60] =
 {
     0x05, 0x01,                    // USAGE_PAGE (Generic Desktop)
     0x09, 0x05,                    // USAGE (Game Pad)
-    0x15, 0x00,                    // LOGICAL_MINIMUM (0)
-    0x25, 0x01,                    // LOGICAL_MAXIMUM (1)
     0xa1, 0x00,                    // COLLECTION (Physical)
-    0x09, 0x90,                    //   USAGE (D-pad Up)
-    0x09, 0x91,                    //   USAGE (D-pad Down)
-    0x09, 0x92,                    //   USAGE (D-pad Right)
-    0x09, 0x93,                    //   USAGE (D-pad Left)
+    0x09, 0x01,                    //   USAGE (Pointer)
+    0xa1, 0x00,                    //   COLLECTION (Physical)
+    0x09, 0x30,                    //     USAGE (X)
+    0x09, 0x31,                    //     USAGE (Y)
+    0x15, 0xff,                    //     LOGICAL_MINIMUM (-1)
+    0x25, 0x01,                    //     LOGICAL_MAXIMUM (1)
+    0x75, 0x02,                    //     REPORT_SIZE (2)
+    0x95, 0x02,                    //     REPORT_COUNT (2)
+    0x81, 0x02,                    //     INPUT (Data,Var,Abs)
+    0xc0,                          // END_COLLECTION
     0x75, 0x01,                    //   REPORT_SIZE (1)
     0x95, 0x04,                    //   REPORT_COUNT (4)
-    0x81, 0x02,                    //   INPUT (Data,Var,Abs)
+    0x81, 0x03,                    //   INPUT (Cnst,Var,Abs)
     0x05, 0x09,                    //   USAGE_PAGE (Button)
     0x19, 0x01,                    //   USAGE_MINIMUM (Button 1)
     0x29, 0x06,                    //   USAGE_MAXIMUM (Button 6)
+    0x15, 0x00,                    //   LOGICAL_MINIMUM (0)
+    0x25, 0x01,                    //   LOGICAL_MAXIMUM (1)
     0x75, 0x01,                    //   REPORT_SIZE (1)
     0x95, 0x06,                    //   REPORT_COUNT (6)
     0x81, 0x02,                    //   INPUT (Data,Var,Abs)
@@ -429,8 +435,7 @@ static void process_ep0( void )
           /* descriptors come from ROM */
           g_curtrf_mem = TRF_ROM;
           break;
-        case REQ_SET_DESCRIPTOR:
-          /* TODO: not completely implemented yet */
+/*        case REQ_SET_DESCRIPTOR:
           BD0OUT.BDSTAT = _UOWN | _BSTALL;
           BD0IN.BDSTAT = _UOWN | _BSTALL;
           /*
@@ -438,8 +443,7 @@ static void process_ep0( void )
           g_curtrf_mem = TRF_RAM;
           g_curtrf_data = &buffermem;
           g_curtrf_left = sizeof( buffermem );
-          */
-          break;
+          break;  */
         case REQ_SET_ADDRESS:
           DEBUG_OUT( 'A' );
           g_curtrf = TRF_OUT;
