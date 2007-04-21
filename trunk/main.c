@@ -132,34 +132,33 @@ struct bd_entry
   unsigned short BDADR;   /* BD Address register */
 };
 
-static const rom unsigned char report_desc[];  /* forward declaration */
+static const rom unsigned char report_desc[49];  /* forward declaration */
 
  
-static const rom unsigned char dev_desc[] =
+static const rom unsigned char dev_desc[18] =
 {
-  18,           /* bLength: descriptor size in bytes */
-  DESC_DEVICE,  /* bDescriptorType */
-  0x00, 0x02,   /* bcdUSB: USB spec release number */
-  0x00,         /* bDeviceClass: class code */
-  0x00,         /* bDeviceSubclass: subclass code */
-  0x00,         /* bDeviceProtocol: protocol code */
-  0x08,         /* bMaxPacketSize: max packet size for EP0 */
-  0xD8, 0x04,   /* idVendor: vendor ID (0x04D8=Microchip) */
-  0x01, 0x00,   /* idProduct: product ID */
-  0x01, 0x00,   /* bcdDevice: device release number */
-  0x01,         /* iManufacturer: index of string desc. */
-  0x02,         /* iProduct: index of string desc. */
-  0x00,         /* iSerialNumber: index of string desc. */
-  0x01          /* bNumConfiguration: number of possible configs */
+  sizeof( dev_desc ), /* bLength: descriptor size in bytes */
+  DESC_DEVICE,        /* bDescriptorType */
+  0x00, 0x02,         /* bcdUSB: USB spec release number */
+  0x00,               /* bDeviceClass: class code */
+  0x00,               /* bDeviceSubclass: subclass code */
+  0x00,               /* bDeviceProtocol: protocol code */
+  0x08,               /* bMaxPacketSize: max packet size for EP0 */
+  0xD8, 0x04,         /* idVendor: vendor ID (0x04D8=Microchip) */
+  0x01, 0x00,         /* idProduct: product ID */
+  0x01, 0x00,         /* bcdDevice: device release number */
+  0x01,               /* iManufacturer: index of string desc. */
+  0x02,               /* iProduct: index of string desc. */
+  0x00,               /* iSerialNumber: index of string desc. */
+  0x01                /* bNumConfiguration: number of possible configs */
 };
 
-static const rom unsigned char cfg_desc[] =
+static const rom unsigned char cfg_desc[34] =
 {
   /* configuration descriptor */
   9,                  /* bLength: descriptor size in bytes */
   DESC_CONFIGURATION, /* bDescriptorType */
-//  sizeof( cfg_desc ), 0, /* wTotalLength: size of all data for this config */
-  34, 0,
+  sizeof( cfg_desc ), 0, /* wTotalLength: size of all data for this config */
   1,                  /* bNumInterfaces: number of interfaces of config */
   1,                  /* bConfigurationValue: identifier for this config */
   0,                  /* iConfiguration: index of string descriptor */
@@ -182,19 +181,17 @@ static const rom unsigned char cfg_desc[] =
   0,                  /* bCountryCode: indentifies country for localized HW */
   1,                  /* bNumDescriptors: number of subordinate class desc. */
   DESC_REPORT,        /* bDescriptorType */
-  12, 0x00, /* wDescriptorLength: length of report desc. */
-//  sizeof( report_desc ), 0x00, /* wDescriptorLength: length of report desc. */
+  sizeof( report_desc ), 0x00, /* wDescriptorLength: length of report desc. */
   /* endpoint descriptor */
   7,                  /* bLength: descriptor size in bytes */
   DESC_ENDPOINT,      /* bDescriptorType */
   0x81,               /* bEndpointAddress: endpoint number and direction */
   0x03,               /* bmAttributes: type of supported transfer */
   0x08, 0x00,         /* wMaxPacketSize: max. packet size supported */
-//  0x0A                /* bInterval: maximum latency for polling */  
-  sizeof( cfg_desc )
+  0x0A                /* bInterval: maximum latency for polling */  
 };
 
-static const rom unsigned char report_desc[] =
+static const rom unsigned char report_desc[49] =
 {
     0x05, 0x01,                    // USAGE_PAGE (Generic Desktop)
     0x09, 0x05,                    // USAGE (Game Pad)
@@ -223,14 +220,14 @@ static const rom unsigned char report_desc[] =
     0xc0                           // END_COLLECTION
 };
 
-static const rom unsigned char string_desc_lang[] =
+static const rom unsigned char string_desc_lang[4] =
 {
   sizeof( string_desc_lang ),  /* bLength */
   DESC_STRING,                 /* bDescriptorType */
   0x09, 0x04                   /* wLANGID */
 };
 
-static const rom unsigned char string_desc_man[] =
+static const rom unsigned char string_desc_man[38] =
 {
   sizeof( string_desc_man ),
   DESC_STRING,
@@ -238,7 +235,7 @@ static const rom unsigned char string_desc_man[] =
   'E',0,'t',0,'t',0,'i',0,'n',0,'g',0,'e',0,'r',0
 };
 
-static const rom unsigned char string_desc_prod[] =
+static const rom unsigned char string_desc_prod[52] =
 {
   sizeof( string_desc_prod ),
   DESC_STRING,
@@ -267,7 +264,6 @@ static unsigned char   g_curtrf_left;  /* number of bytes still to transf */
 static unsigned char   g_curtrf_dts;   /* DTS value for next transaction */
 static unsigned char   g_addr;  /* TODO: rework */
 static unsigned char   g_config;       /* current configuration */
-static unsigned char   g_test;
 
 /* local prototypes */
 void high_isr( void );
@@ -294,7 +290,8 @@ void high_isr( void )
     debug_txint();
   }
   
-  /* TODO: check enables flags here? */
+  /* TODO: check enabled flags here, in case not all interrupts are 
+    always enabled */
   if ( PIR2 & 0x20 )
   {
     /* USB interrupt */
@@ -309,6 +306,8 @@ void high_isr( void )
       BD0OUT.BDSTAT = _UOWN;
       BD0OUT.BDCNT  = 8;
       DEBUG_OUT( 'R' );
+      DEBUG_OUT( '\r' );
+      DEBUG_OUT( '\n' );
     }
     if ( UIR & 0x02 )
     {
@@ -393,24 +392,35 @@ void process_ep0( void )
               g_curtrf_left = sizeof( cfg_desc );
               /* endpoint for IN transaction will be prepared below */
               break;
+            case DESC_REPORT:
+              DEBUG_OUT( 'r' );
+              g_curtrf = TRF_IN;
+              g_curtrf_data = report_desc;
+              g_curtrf_left = sizeof( report_desc );
+              /* endpoint for IN transaction will be prepared below */
+              break;
             case DESC_STRING:
               DEBUG_OUT( 's' );
               g_curtrf = TRF_IN;
               switch ( ((struct ctrltrf_setup *)EP0RXBUF)->wValue & 0xFF )
               {
                 case 0:
+                  DEBUG_OUT( '0' );
                   g_curtrf_data = string_desc_lang;
                   g_curtrf_left = sizeof( string_desc_lang );
                   break;
                 case 1:
+                  DEBUG_OUT( '1' );
                   g_curtrf_data = string_desc_man;
                   g_curtrf_left = sizeof( string_desc_man );
                   break;
                 case 2:
+                  DEBUG_OUT( '2' );
                   g_curtrf_data = string_desc_prod;
                   g_curtrf_left = sizeof( string_desc_prod );
                   break;
                 default:
+                  DEBUG_OUT( 'u' );
                   g_curtrf_left = 0;
               }
               /* endpoint for IN transaction will be prepared below */
@@ -419,6 +429,7 @@ void process_ep0( void )
               /* unsupported descriptor -> send STALL */
               /* (will be cleared with next SETUP transaction) */
               DEBUG_OUT( 'u' );
+              DEBUG_OUT( desc );
               BD0OUT.BDSTAT = _UOWN | _BSTALL;
               BD0IN.BDSTAT = _UOWN | _BSTALL;
           }
@@ -466,13 +477,20 @@ void process_ep0( void )
           g_curtrf_left = 1;
           break;
         case REQ_GET_REPORT:
+          DEBUG_OUT( 'P' );
           /* wValue: high-byte = report type, low-byte = report ID */
           /* TODO */
+          break;
+        case REQ_SET_IDLE:
+          DEBUG_OUT( 'L' );
+          g_curtrf = TRF_OUT;
+          g_curtrf_left = 0;
           break;
         default:
           /* unsupported request -> send STALL */
           /* (will be cleared with next SETUP transaction) */
           DEBUG_OUT( 'U' );
+          DEBUG_OUT( req );
           BD0OUT.BDSTAT = _UOWN | _BSTALL;
           BD0IN.BDSTAT = _UOWN | _BSTALL;
       }
@@ -541,7 +559,7 @@ void process_ep0( void )
        remaining or not. When the host requests more data than we have,
        we are required to send a zero-length data packet. */
     tocopy = ( g_curtrf_left <= 8U ) ? g_curtrf_left : 8;
-    DEBUG_OUT( '0' + tocopy );
+    //DEBUG_OUT( '0' + tocopy );
     if ( g_curtrf_mem == TRF_RAM )
     {
       memcpy( (void *)EP0TXBUF, (const void *)g_curtrf_data, tocopy );
@@ -583,12 +601,12 @@ void process_ep0( void )
 void process_ep1( void )
 {
   /* endpoint 1 only supports Interrupt transfers */
+  DEBUG_OUT( '_' );
 }
 
 
 void main(void)
 {
-  g_test = 0;
   ADCON1 = 0x0F; /* all pins to digital */
   LATA = 0x01; 
   TRISA = 0x00;  /* all pins to output */
@@ -603,8 +621,6 @@ void main(void)
   
   /* initialize EUSART */
   debug_init();
-  DEBUG_OUT( '\r' );
-  DEBUG_OUT( '\n' );
 
   /* initialize USB */
   UCFG = 0x00;  /* low speed, internal transciever */
