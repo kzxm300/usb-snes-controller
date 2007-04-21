@@ -5,9 +5,11 @@
 
 #define BUFFER_SIZE 64
 
+#ifdef DEBUG
 static unsigned char g_buffer[ BUFFER_SIZE ];
 static unsigned char g_index_in;     /* points to next free location */
 static unsigned char g_index_out;    /* points to char being transmitted */
+#endif
 
 #pragma code
 
