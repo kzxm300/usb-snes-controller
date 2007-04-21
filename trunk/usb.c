@@ -256,6 +256,7 @@ static unsigned char   g_curtrf_left;  /* number of bytes still to transf */
 static unsigned char   g_curtrf_dts;   /* DTS value for next transaction */
 static unsigned char   g_addr;  /* TODO: rework */
 static unsigned char   g_config;       /* current configuration */
+static unsigned char   g_hidreport[2]; /* HID report with button states */
 
 /* local prototypes */
 static void process_ep0( void );
@@ -469,7 +470,11 @@ static void process_ep0( void )
         case REQ_GET_REPORT:
           DEBUG_OUT( 'P' );
           /* wValue: high-byte = report type, low-byte = report ID */
-          /* TODO */
+          /* we support only one report, therefore we need not check here */
+          g_curtrf = TRF_IN;
+          g_curtrf_mem = TRF_RAM;
+          g_curtrf_data = g_hidreport;
+          g_curtrf_left = 2;
           break;
         case REQ_SET_IDLE:
           DEBUG_OUT( 'L' );
