@@ -17,4 +17,8 @@ build/%.o : %.c
 	$(LD) $(LDCMDFILE) $+ $(LDLIBS) /o $@ /m $*.map $(LDFLAGS)
 
 
-build/main.hex : build/main.o build/debug.o
+build/main.hex : build/main.o build/usb.o build/debug.o
+
+build/usb.o   : usb.c usb.h
+
+build/debug.o : debug.c debug.h
