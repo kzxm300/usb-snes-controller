@@ -270,11 +270,11 @@ void usb_init( void )
 {
   PIE2 |= 0x20;    /* enable USB interrupts */
   
-  UCFG = 0x00;  /* low speed, internal transciever */
+  UCFG = 0x10;  /* low speed, internal transciever, on-chip pullup */
   UIE  = 0x7F;  /* enable all USB interrupts */
   /* TODO: only enable implemented interrupts */
   UEP0 = _EPHSHK | _EPOUTEN | _EPINEN;  /* permit control transfers */
-  UEP1 = 0x1A;  /* endpoint 1: only IN transfers */
+  UEP1 = _EPHSHK | _EPCONDIS | _EPINEN;  /* only IN transfers */
   BD0OUT.BDSTAT = _UOWN;  /* reset&activate */
   BD0OUT.BDCNT  = 8;     /* 8 Byte size for low-speed */
   BD0OUT.BDADR  = (unsigned short)&EP0RXBUF;
@@ -284,9 +284,11 @@ void usb_init( void )
   BD1OUT.BDSTAT = 0x00;  /* reset */
   BD1OUT.BDCNT  = 8;     /* 8 Byte size for low-speed */
   BD1OUT.BDADR  = (unsigned short)&EP1RXBUF;
-  BD1IN.BDSTAT  = 0x00;  /* reset */
-  BD1IN.BDCNT   = 0;
+  BD1IN.BDSTAT  = _UOWN;  /* reset&activate */
+  BD1IN.BDCNT   = 2;
   BD1IN.BDADR   = (unsigned short)&EP1TXBUF;
+  EP1TXBUF[0] = 0;
+  EP1TXBUF[1] = 2;
   UCON = _PPBRST | _PKTDIS | _USBEN;  /* enable USB module */
 }
 
@@ -540,7 +542,6 @@ static void process_ep0( void )
         DEBUG_OUT( '0' + ( g_addr & 0x0F ) );
         UADDR = g_addr;
         g_addr = 0;
-        LATA = 0;
       }
     }
   } /* if ( ( USTAT & _DIR ) != 0 ) */
@@ -596,6 +597,11 @@ static void process_ep0( void )
 /* process interrupt at endpoint 1 */
 static void process_ep1( void )
 {
-  /* endpoint 1 only supports Interrupt transfers */
+  /* endpoint 1 only supports interrupt IN transfers */
+  /* therefore we need not check anything here */
   DEBUG_OUT( '_' );
+  /* prepare endpoint for next IN transaction */
+  /* TODO: only set _UOWN when new data is available */
+  /* TODO: copy g_hidreport to EP1TXBUF */
+  BD1IN.BDSTAT = _UOWN;
 }
