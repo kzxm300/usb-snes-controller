@@ -25,7 +25,8 @@ void debug_init( void )
   BAUDCON = 0x02; /* wake-up enabled */
   TXSTA = 0x20;   /* transmit enabled */
   RCSTA = 0x90;   /* serial port & receiver enabled */
-  PIE1 |= 0x10;   /* enable TX interrupt */
+  /* NOTE: TX interrupt is not enabled here, it will be enabled
+    as soon as something is written to the TX buffer */
 #endif
 }
 
@@ -42,6 +43,11 @@ void debug_txint( void )
     {
       /* there are more characters to send */
       TXREG = g_buffer[ g_index_out ];
+    }
+    else
+    {
+      /* no more characters to send -> disable TX interrupt */
+      PIE1 &= ~0x10;
     }
   }
 #endif
@@ -71,5 +77,8 @@ void debug_write( unsigned char c )
     g_index_in = old_index_in;    /* do not advance pointer */
     g_buffer[ ( g_index_in - 1 ) % BUFFER_SIZE ] = 'X';
   }  
+
+  /* enable TX interrupt, in case it is not enabled yet */
+  PIE1 |= 0x10;
 #endif
 }
