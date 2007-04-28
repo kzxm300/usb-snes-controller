@@ -174,7 +174,7 @@ static const rom unsigned char cfg_desc[34] =
   0x81,               /* bEndpointAddress: endpoint number and direction */
   0x03,               /* bmAttributes: type of supported transfer */
   0x08, 0x00,         /* wMaxPacketSize: max. packet size supported */
-  0x0A                /* bInterval: maximum latency for polling */  
+  0x20                /* bInterval: maximum latency for polling */  
 };
 
 static const rom unsigned char report_desc[60] =
@@ -599,7 +599,6 @@ static void process_ep1( void )
 {
   /* endpoint 1 only supports interrupt IN transfers */
   /* therefore we need not check anything here */
-  DEBUG_OUT( '_' );
   /* prepare endpoint for next IN transaction */
   /* TODO: only set _UOWN when new data is available */
   /* TODO: copy g_hidreport to EP1TXBUF */
