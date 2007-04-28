@@ -36,15 +36,13 @@ void interrupt_at_high_vector( void )
 void high_isr( void )
 {
   /* query interrupt flag bits */
-  if ( PIR1 & 0x10 )
+  if ( ( PIR1 & 0x10 ) && ( PIE1 & 0x10 ) )
   {
     /* EUSART TX interrupt */
     debug_txint();
   }
   
-  /* TODO: check enabled flags here, in case not all interrupts are 
-    always enabled */
-  if ( PIR2 & 0x20 )
+  if ( ( PIR2 & 0x20 ) && ( PIE2 & 0x20 ) )
   {
     /* USB interrupt */
     usb_interrupt();
@@ -70,7 +68,8 @@ static void delay( unsigned short timeus )
 /* main entry point */
 void main( void )
 {
-  unsigned char button;  /* current button number */
+  unsigned char  button;  /* current button number */
+  unsigned short but_state;  /* bit array of button states */
   
   ADCON1 = 0x0F; /* all pins to digital */
   LATA = 0x01; 
@@ -109,16 +108,17 @@ void main( void )
     delay( 6 );
     
     /* go over all 16 buttons */
+    but_state = 0;
     for ( button = 0; button < 16U; ++button )
     {
       /* issue falling edge on CLK */
       LATA &= ~0x02;
       
       /* sample button state from DAT */
-      if ( PORTA & 0x08 )
+      if ( ( PORTA & 0x08 ) == 0U )
       {
-        /* TODO */
-        LATA &= ~0x01;
+        /* button is pressed */
+        but_state |= (unsigned short)1 << button;
       }
       
       /* wait 6us */
@@ -129,6 +129,16 @@ void main( void )
 
       /* wait 6us for controller to drive next button state */
       delay( 6 );
+    }
+    
+    /* interpret sampled button states */
+    if ( but_state != 0U )
+    {
+      LATA &= ~0x01;
+    }
+    else
+    {
+      LATA |= 0x01;
     }
   }
 }
