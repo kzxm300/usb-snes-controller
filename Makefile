@@ -19,6 +19,8 @@ build/%.o : %.c
 
 build/main.hex : build/main.o build/usb.o build/debug.o
 
-build/usb.o   : usb.c usb.h
+build/main.o  : main.c usb.h debug.h
+
+build/usb.o   : usb.c usb.h debug.h
 
 build/debug.o : debug.c debug.h
