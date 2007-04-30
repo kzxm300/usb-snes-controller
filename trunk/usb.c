@@ -132,7 +132,7 @@ static const rom unsigned char dev_desc[18] =
   0x08,               /* bMaxPacketSize: max packet size for EP0 */
   0xD8, 0x04,         /* idVendor: vendor ID (0x04D8=Microchip) */
   0x01, 0x00,         /* idProduct: product ID */
-  0x01, 0x00,         /* bcdDevice: device release number */
+  0x02, 0x00,         /* bcdDevice: device release number */
   0x01,               /* iManufacturer: index of string desc. */
   0x02,               /* iProduct: index of string desc. */
   0x00,               /* iSerialNumber: index of string desc. */
@@ -181,7 +181,7 @@ static const rom unsigned char report_desc[60] =
 {
     0x05, 0x01,                    // USAGE_PAGE (Generic Desktop)
     0x09, 0x05,                    // USAGE (Game Pad)
-    0xa1, 0x00,                    // COLLECTION (Physical)
+    0xa1, 0x01,                    //   COLLECTION (Application)
     0x09, 0x01,                    //   USAGE (Pointer)
     0xa1, 0x00,                    //   COLLECTION (Physical)
     0x09, 0x30,                    //     USAGE (X)
@@ -256,7 +256,9 @@ static unsigned char   g_curtrf_left;  /* number of bytes still to transf */
 static unsigned char   g_curtrf_dts;   /* DTS value for next transaction */
 static unsigned char   g_addr;  /* TODO: rework */
 static unsigned char   g_config;       /* current configuration */
-static unsigned char   g_hidreport[2]; /* HID report with button states */
+static unsigned char   g_reportpending;/* if new report data is waiting */
+static unsigned char   g_reportdts;    /* DTS value for next transaction */
+unsigned char          g_hidreport[2]; /* HID report with button states */
 
 /* local prototypes */
 static void process_ep0( void );
@@ -284,12 +286,36 @@ void usb_init( void )
   BD1OUT.BDSTAT = 0x00;  /* reset */
   BD1OUT.BDCNT  = 8;     /* 8 Byte size for low-speed */
   BD1OUT.BDADR  = (unsigned short)&EP1RXBUF;
-  BD1IN.BDSTAT  = _UOWN;  /* reset&activate */
+  BD1IN.BDSTAT  = 0x00;  /* reset */
   BD1IN.BDCNT   = 2;
   BD1IN.BDADR   = (unsigned short)&EP1TXBUF;
   EP1TXBUF[0] = 0;
-  EP1TXBUF[1] = 2;
+  EP1TXBUF[1] = 0;
   UCON = _PPBRST | _PKTDIS | _USBEN;  /* enable USB module */
+}
+
+/* called whenever g_hidreport was changed */
+/* NOTE: must not be called with interrupts disabled! */
+void usb_reportchanged( void )
+{
+  INTCON &= ~0x80;  /* protection against interruption */
+  
+  /* check if we are allowed to modify this buffer */
+  if ( ( BD1IN.BDSTAT & _UOWN ) == 0U )
+  {
+    /* prepare endpoint for next IN transaction */
+    EP1TXBUF[0] = g_hidreport[0];
+    EP1TXBUF[1] = g_hidreport[1];
+    BD1IN.BDSTAT = _UOWN | _DTSEN | g_reportdts;
+    g_reportdts ^= _DTS;
+  }
+  else
+  {
+    /* endpoint is busy right now */
+    g_reportpending = 1;
+  }
+  
+  INTCON |= 0x80;   /* enable interrupts again */
 }
 
 
@@ -300,8 +326,10 @@ void usb_interrupt( void )
   {
     /* USB reset interrupt */
     /* UADDR has already been set to 0 */
-    g_addr = 0;
-    g_config = 0;
+    g_addr          = 0;
+    g_config        = 0;
+    g_reportpending = 0;
+    g_reportdts     = 0;
     /* TODO: clear USTAT FIFO */
     /* EP0 is ready for SETUP transaction: */
     BD0OUT.BDSTAT = _UOWN;
@@ -599,8 +627,20 @@ static void process_ep1( void )
 {
   /* endpoint 1 only supports interrupt IN transfers */
   /* therefore we need not check anything here */
-  /* prepare endpoint for next IN transaction */
-  /* TODO: only set _UOWN when new data is available */
-  /* TODO: copy g_hidreport to EP1TXBUF */
-  BD1IN.BDSTAT = _UOWN;
+  /* endpoint usually gets re-armed in usb_reportchanged(),
+    except when endpoint was busy then */
+  if ( g_reportpending != 0U )
+  {
+    DEBUG_OUT( '_' );
+    /* there is new data waiting to be transmitted */
+    EP1TXBUF[0] = g_hidreport[0];
+    EP1TXBUF[1] = g_hidreport[1];
+    BD1IN.BDSTAT = _UOWN | _DTSEN | g_reportdts;
+    g_reportdts ^= _DTS;
+    g_reportpending = 0;
+  }
+  else
+  {
+    DEBUG_OUT( '-' );
+  }
 }
