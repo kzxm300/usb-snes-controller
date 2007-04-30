@@ -53,6 +53,7 @@ void debug_txint( void )
 #endif
 }
 
+/* writes a character to the output buffer */
 void debug_write( unsigned char c )
 {
 #ifdef DEBUG
