@@ -18,6 +18,30 @@
 #pragma config MCLRE = OFF        /* Master Clear Reset */
 #pragma config PBADEN = OFF       /* PORTB are digital I/O */
 
+/* pins on PortA */
+enum snes_pins
+{
+  SNES_LATCH = 0x04,
+  SNES_CLOCK = 0x02,
+  SNES_DATA  = 0x08
+};
+
+/* SNES buttons */
+enum snes_buttons
+{
+  BUT_B      = 0x0001,
+  BUT_Y      = 0x0002,
+  BUT_SELECT = 0x0004,
+  BUT_START  = 0x0008,
+  BUT_UP     = 0x0010,
+  BUT_DOWN   = 0x0020,
+  BUT_LEFT   = 0x0040,
+  BUT_RIGHT  = 0x0080,
+  BUT_A      = 0x0100,
+  BUT_X      = 0x0200,
+  BUT_L      = 0x0400,
+  BUT_R      = 0x0800
+};
 
 /* local prototypes */
 void high_isr( void );
@@ -68,8 +92,9 @@ static void delay( unsigned short timeus )
 /* main entry point */
 void main( void )
 {
-  unsigned char  button;  /* current button number */
-  unsigned short but_state;  /* bit array of button states */
+  unsigned char  but;         /* current button number */
+  unsigned short buttons;     /* bit array of button states */
+  unsigned short old_buttons; /* old value of butstates */ 
   
   ADCON1 = 0x0F; /* all pins to digital */
   LATA = 0x01; 
@@ -93,52 +118,75 @@ void main( void )
   INTCON = 0xC0;  
   
   /* initialization of SNES interface */
-  LATA  |= 0x02;  /* RA1 (clock) to high */
-  TRISA |= 0x08;  /* RA3 (data) to input */
+  LATA  |= SNES_CLOCK;  /* RA1 (clock) to high */
+  TRISA |= SNES_DATA;   /* RA3 (data) to input */
   
   while(1)
   {
     /* trigger controller to latch status of all buttons */
     /* send positive pulse on LAT, 12us */
-    LATA |= 0x04;
+    LATA |= SNES_LATCH;
     delay( 12 );
-    LATA &= ~0x04;
+    LATA &= ~SNES_LATCH;
     
     /* wait 6us for controller to drive first button state */
     delay( 6 );
     
     /* go over all 16 buttons */
-    but_state = 0;
-    for ( button = 0; button < 16U; ++button )
+    old_buttons = buttons;
+    buttons = 0;
+    for ( but = 0; but < 16U; ++but )
     {
       /* issue falling edge on CLK */
-      LATA &= ~0x02;
+      LATA &= ~SNES_CLOCK;
       
       /* sample button state from DAT */
-      if ( ( PORTA & 0x08 ) == 0U )
+      if ( ( PORTA & SNES_DATA ) == 0U )
       {
         /* button is pressed */
-        but_state |= (unsigned short)1 << button;
+        buttons |= (unsigned short)1 << but;
       }
       
       /* wait 6us */
       delay( 6 );
       
       /* issue rising edge on CLK, controller will drive next bit */
-      LATA |= 0x02;
+      LATA |= SNES_CLOCK;
 
       /* wait 6us for controller to drive next button state */
       delay( 6 );
     }
     
     /* interpret sampled button states */
-    if ( but_state != 0U )
+    if ( buttons != 0U )
     {
       LATA &= ~0x01;
     }
     else
     {
       LATA |= 0x01;
+    }
+    if ( buttons != old_buttons )
+    {
+      /* state of buttons changed -> re-interpret them */
+      g_hidreport[0] = 0;
+      g_hidreport[1] = 0;
+      
+      if ( buttons & BUT_LEFT )   g_hidreport[0] |= 0x03;
+      if ( buttons & BUT_RIGHT )  g_hidreport[0] |= 0x01;
+      if ( buttons & BUT_DOWN )   g_hidreport[0] |= 0x04;
+      if ( buttons & BUT_UP )     g_hidreport[0] |= 0x0C;
+      if ( buttons & BUT_B )      g_hidreport[1] |= 0x01;
+      if ( buttons & BUT_Y )      g_hidreport[1] |= 0x02;
+      if ( buttons & BUT_A )      g_hidreport[1] |= 0x04;
+      if ( buttons & BUT_X )      g_hidreport[1] |= 0x08;
+      if ( buttons & BUT_L )      g_hidreport[1] |= 0x10;
+      if ( buttons & BUT_R )      g_hidreport[1] |= 0x20;
+      if ( buttons & BUT_START )  g_hidreport[1] |= 0x40;
+      if ( buttons & BUT_SELECT ) g_hidreport[1] |= 0x80;
+      
+      /* inform USB that new values are present */
+      usb_reportchanged();
     }
   }
 }
