@@ -45,6 +45,8 @@ enum snes_buttons
 
 /* local prototypes */
 void high_isr( void );
+static void delay( unsigned char timeus );
+
 
 /* Interrupt Vector */
 #pragma code high_vector = 0x08
@@ -81,12 +83,18 @@ void high_isr( void )
 
 
 /* wait a specific amount of cycles */
-/* TODO: rewrite in assembler */
-static void delay( unsigned short timeus )
+static void delay( unsigned char timeus )
 {
-  volatile unsigned short cycles;
-  
-  for ( cycles = timeus * 24; cycles > 0U; --cycles );
+  _asm
+    MOVLW -2  /* operate on first function parameter */
+    start:
+      DECF PLUSW2, 1, 0
+      BZ done
+      NOP        /* 6 NOPs would take 1us */
+      NOP
+      BRA start
+    done:
+  _endasm
 }
 
 /* main entry point */
