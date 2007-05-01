@@ -174,7 +174,7 @@ static const rom unsigned char cfg_desc[34] =
   0x81,               /* bEndpointAddress: endpoint number and direction */
   0x03,               /* bmAttributes: type of supported transfer */
   0x08, 0x00,         /* wMaxPacketSize: max. packet size supported */
-  0x20                /* bInterval: maximum latency for polling */  
+  0x0A                /* bInterval: maximum latency for polling */  
 };
 
 static const rom unsigned char report_desc[60] =
