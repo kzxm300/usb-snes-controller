@@ -1,7 +1,7 @@
 #ifndef DEBUG_H
 #define DEBUG_H
 
-#define DEBUG
+#undef DEBUG
 
 #ifdef DEBUG
   #define DEBUG_OUT(a) debug_write(a)
