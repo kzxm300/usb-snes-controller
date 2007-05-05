@@ -25,23 +25,19 @@
 #define _EPOUTEN  0x04
 #define _EPINEN   0x02
 #define _EPSTALL  0x01
+/* UIR and UIE register */
+#define _SOFI     0x40
+#define _STALLI   0x20
+#define _IDLEI    0x10
+#define _TRNI     0x08
+#define _ACTVI    0x04
+#define _UERRI    0x02
+#define _URSTI    0x01
 
 /* PID values in BDnSTAT register */
 #define PID_OUT   (unsigned char)(0x1 << 2)
 #define PID_IN    (unsigned char)(0x9 << 2)
-#define PID_SOF   (unsigned char)(0x5 << 2)
 #define PID_SETUP (unsigned char)(0xD << 2)
-#define PID_DATA0 (unsigned char)(0x3 << 2)
-#define PID_DATA1 (unsigned char)(0xB << 2)
-#define PID_DATA2 (unsigned char)(0x7 << 2)
-#define PID_MDATA (unsigned char)(0xF << 2)
-#define PID_ACK   (unsigned char)(0x2 << 2)
-#define PID_NAK   (unsigned char)(0xA << 2)
-#define PID_STALL (unsigned char)(0xE << 2)
-#define PID_NYET  (unsigned char)(0x6 << 2)
-#define PID_ERR   (unsigned char)(0xC << 2)
-#define PID_SPLIT (unsigned char)(0x8 << 2)
-#define PID_PING  (unsigned char)(0x4 << 2)
 
 /* USB request numbers */
 enum req_num
@@ -132,10 +128,10 @@ static const rom unsigned char dev_desc[18] =
   0x08,               /* bMaxPacketSize: max packet size for EP0 */
   0xD8, 0x04,         /* idVendor: vendor ID (0x04D8=Microchip) */
   0x01, 0x00,         /* idProduct: product ID */
-  0x02, 0x00,         /* bcdDevice: device release number */
+  0x01, 0x00,         /* bcdDevice: device release number */
   0x01,               /* iManufacturer: index of string desc. */
   0x02,               /* iProduct: index of string desc. */
-  0x00,               /* iSerialNumber: index of string desc. */
+  0x03,               /* iSerialNumber: index of string desc. */
   0x01                /* bNumConfiguration: number of possible configs */
 };
 
@@ -149,7 +145,7 @@ static const rom unsigned char cfg_desc[34] =
   1,                  /* bConfigurationValue: identifier for this config */
   0,                  /* iConfiguration: index of string descriptor */
   0,                  /* bmAttributes: self/bus powered and remote wakeup */
-  98,                 /* MaxPower: bus power required [mA/2] */
+  15,                 /* MaxPower: bus power required [2*mA] */
   /* interface descriptor */
   9,                  /* bLength: descriptor size in bytes */
   DESC_INTERFACE,     /* bDescriptorType */
@@ -235,6 +231,14 @@ static const rom unsigned char string_desc_prod[52] =
   'd',0,'o',0,' ',0,'C',0,'o',0,'n',0,'t',0,'r',0,'o',0,'l',0,'l',0,'e',0,'r',0
 };
 
+static const rom unsigned char string_desc_serial[10] =
+{
+  sizeof( string_desc_serial ),
+  DESC_STRING,
+  '0',0,'0',0,'0',0,'1',0
+};
+
+
 /* USB Memory */
 #pragma udata usb_bdt = 0x400
 static volatile struct bd_entry BD0OUT;  /* buffer descriptor table */
@@ -270,14 +274,13 @@ static void process_ep1( void );
 /* initialize USB module */
 void usb_init( void )
 {
-  PIE2 |= 0x20;    /* enable USB interrupts */
+  PIE2 |= 0x20;     /* enable USB interrupts */
   
-  UCFG = 0x10;  /* low speed, internal transciever, on-chip pullup */
-  UIE  = 0x7F;  /* enable all USB interrupts */
-  /* TODO: only enable implemented interrupts */
+  UCFG = 0x10;   /* low speed, internal transciever, on-chip pullup */
+  UIE  = _IDLEI | _TRNI | _URSTI;       /* enable USB interrupts */
   UEP0 = _EPHSHK | _EPOUTEN | _EPINEN;  /* permit control transfers */
-  UEP1 = _EPHSHK | _EPCONDIS | _EPINEN;  /* only IN transfers */
-  BD0OUT.BDSTAT = _UOWN;  /* reset&activate */
+  UEP1 = _EPHSHK | _EPCONDIS | _EPINEN; /* only IN transfers */
+  BD0OUT.BDSTAT = _UOWN; /* reset&activate */
   BD0OUT.BDCNT  = 8;     /* 8 Byte size for low-speed */
   BD0OUT.BDADR  = (unsigned short)&EP0RXBUF;
   BD0IN.BDSTAT  = 0x00;  /* reset */
@@ -322,7 +325,7 @@ void usb_reportchanged( void )
 /* handle USB interrupt */
 void usb_interrupt( void ) 
 {
-  if ( UIR & 0x01 )
+  if ( ( UIE & _URSTI ) && ( UIR & _URSTI ) )
   {
     /* USB reset interrupt */
     /* UADDR has already been set to 0 */
@@ -330,21 +333,15 @@ void usb_interrupt( void )
     g_config        = 0;
     g_reportpending = 0;
     g_reportdts     = 0;
-    /* TODO: clear USTAT FIFO */
     /* EP0 is ready for SETUP transaction: */
     BD0OUT.BDSTAT = _UOWN;
     BD0OUT.BDCNT  = 8;
     DEBUG_OUT( 'R' );
     DEBUG_OUT( '\r' );
     DEBUG_OUT( '\n' );
+    UIR = 0x00;         /* clear all other USB interrupts */
   }
-  if ( UIR & 0x02 )
-  {
-    /* USB error condition interrupt */
-    /* error condition flags may be queried here */
-    UEIR = 0x00;  /* clear USB error interrupt flags */
-  }
-  if ( UIR & 0x08 )
+  if ( ( UIE & _TRNI ) && ( UIR & _TRNI ) )
   {
     /* USB transaction complete interrupt */
     /* read USTAT register */
@@ -358,6 +355,30 @@ void usb_interrupt( void )
         break;
     }
   }
+  if ( ( UIE & _UERRI ) && ( UIR & _UERRI ) )
+  {
+    /* USB error condition interrupt */
+    /* (currently not enabled) */
+    /* error condition flags may be queried here */
+    UEIR = 0x00;  /* clear USB error interrupt flags */
+  }
+  if ( ( UIE & _IDLEI ) && ( UIR & _IDLEI ) )
+  {
+    /* idle condition detected */
+    UCON |= _SUSPND;  /* place SIE in suspend state */
+    UIR  = 0x00;      /* clear all interrupt conditions */
+    PIR1 = 0x00;      /* (required for SLEEP mode) */
+    PIR2 = 0x00;
+    UIE = _ACTVI;     /* enable only ACTVIF interrupt */
+    Sleep();          /* enter SLEEP state */
+  }
+  if ( ( UIE & _ACTVI ) && ( UIR & _ACTVI ) )
+  {
+    /* bus activity detected */
+    UCON &= ~_SUSPND;   /* enable normal SIE operation again */
+    UIE = _IDLEI | _TRNI | _URSTI;   /* enable USB interrupts again */
+  }
+  
   UIR = 0x00;  /* clear USB interrupt flags */
 }
 
@@ -441,6 +462,11 @@ static void process_ep0( void )
                   DEBUG_OUT( '2' );
                   g_curtrf_data = string_desc_prod;
                   g_curtrf_left = sizeof( string_desc_prod );
+                  break;
+                case 3:
+                  DEBUG_OUT( '3' );
+                  g_curtrf_data = string_desc_serial;
+                  g_curtrf_left = sizeof( string_desc_serial );
                   break;
                 default:
                   DEBUG_OUT( 'u' );
