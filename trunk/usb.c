@@ -260,7 +260,6 @@ static unsigned char   g_curtrf_left;  /* number of bytes still to transf */
 static unsigned char   g_curtrf_dts;   /* DTS value for next transaction */
 static unsigned char   g_addr;  /* TODO: rework */
 static unsigned char   g_config;       /* current configuration */
-static unsigned char   g_reportpending;/* if new report data is waiting */
 static unsigned char   g_reportdts;    /* DTS value for next transaction */
 unsigned char          g_hidreport[2]; /* HID report with button states */
 
@@ -303,19 +302,19 @@ void usb_reportchanged( void )
 {
   INTCON &= ~0x80;  /* protection against interruption */
   
-  /* check if we are allowed to modify this buffer */
+  /* NOTE: We do NOT check the UOWN bit to see if we are allowed to modify
+    the buffer. Instead, we simply overwrite the buffer's current content,
+    so the host always receives the latest button states.
+    Let's hope we do not produce rubbish in case the SIE just transfers the
+    buffer while we write to it. */
+
+  EP1TXBUF[0] = g_hidreport[0];
+  EP1TXBUF[1] = g_hidreport[1];
+
   if ( ( BD1IN.BDSTAT & _UOWN ) == 0U )
   {
-    /* prepare endpoint for next IN transaction */
-    EP1TXBUF[0] = g_hidreport[0];
-    EP1TXBUF[1] = g_hidreport[1];
+    /* endpoint was free -> flag for transmission */
     BD1IN.BDSTAT = _UOWN | _DTSEN | g_reportdts;
-    g_reportdts ^= _DTS;
-  }
-  else
-  {
-    /* endpoint is busy right now */
-    g_reportpending = 1;
   }
   
   INTCON |= 0x80;   /* enable interrupts again */
@@ -331,7 +330,6 @@ void usb_interrupt( void )
     /* UADDR has already been set to 0 */
     g_addr          = 0;
     g_config        = 0;
-    g_reportpending = 0;
     g_reportdts     = 0;
     /* EP0 is ready for SETUP transaction: */
     BD0OUT.BDSTAT = _UOWN;
@@ -653,20 +651,6 @@ static void process_ep1( void )
 {
   /* endpoint 1 only supports interrupt IN transfers */
   /* therefore we need not check anything here */
-  /* endpoint usually gets re-armed in usb_reportchanged(),
-    except when endpoint was busy then */
-  if ( g_reportpending != 0U )
-  {
-    DEBUG_OUT( '_' );
-    /* there is new data waiting to be transmitted */
-    EP1TXBUF[0] = g_hidreport[0];
-    EP1TXBUF[1] = g_hidreport[1];
-    BD1IN.BDSTAT = _UOWN | _DTSEN | g_reportdts;
-    g_reportdts ^= _DTS;
-    g_reportpending = 0;
-  }
-  else
-  {
-    DEBUG_OUT( '-' );
-  }
+  /* we just change the DTS value for the next transmission */
+  g_reportdts ^= _DTS;
 }
