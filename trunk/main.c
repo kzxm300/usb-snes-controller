@@ -62,20 +62,20 @@ void interrupt_at_high_vector( void )
 void high_isr( void )
 {
   /* query interrupt flag bits */
-  if ( ( PIR1 & 0x10 ) && ( PIE1 & 0x10 ) )
+  if ( ( PIE1 & 0x10 ) && ( PIR1 & 0x10 ) )
   {
     /* EUSART TX interrupt */
     debug_txint();
   }
   
-  if ( ( PIR2 & 0x20 ) && ( PIE2 & 0x20 ) )
+  if ( ( PIE2 & 0x20 ) && ( PIR2 & 0x20 ) )
   {
     /* USB interrupt */
     usb_interrupt();
   }
   
   /* other interrupt flags may be queried here */
-  
+
   /* clear interrupt flag bits */
   PIR1 = 0x00;
   PIR2 = 0x00;
@@ -116,6 +116,9 @@ void main( void )
   PIE1 = 0x00;    /* disable interrupt sources */
   PIE2 = 0x00;
 
+  /* initializes power mode settings */
+  OSCCON = 0x00;  /* Sleep mode enabled, primary oscillator */
+  
   /* initialize EUSART */
   debug_init();
 
@@ -129,7 +132,7 @@ void main( void )
   LATA  |= SNES_CLOCK;  /* RA1 (clock) to high */
   TRISA |= SNES_DATA;   /* RA3 (data) to input */
   
-  while(1)
+  while (1)
   {
     /* trigger controller to latch status of all buttons */
     /* send positive pulse on LAT, 12us */
