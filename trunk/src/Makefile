@@ -11,6 +11,7 @@ LDLIBS =
 LDFLAGS = /l C:\Programme\MCC18\lib
 
 build/%.o : %.c
+	@if not exist build mkdir build
 	$(CC) $(CPPFLAGS) $(CFLAGS) $< -fo $@
 
 %.hex :
