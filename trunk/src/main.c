@@ -22,8 +22,9 @@
 enum snes_pins
 {
   SNES_LATCH = 0x04,
-  SNES_CLOCK = 0x02,
-  SNES_DATA  = 0x08
+  SNES_CLOCK = 0x20,
+  SNES_DATA  = 0x08,
+  SNES_VCC   = 0x10
 };
 
 /* SNES buttons */
@@ -129,6 +130,7 @@ void main( void )
   INTCON = 0xC0;  
   
   /* initialization of SNES interface */
+  LATA  |= SNES_VCC;    /* RA4 (supply) to high */
   LATA  |= SNES_CLOCK;  /* RA1 (clock) to high */
   TRISA |= SNES_DATA;   /* RA3 (data) to input */
   
